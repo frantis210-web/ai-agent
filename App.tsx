@@ -1,11 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { ConnectionState } from './types';
 import { SYSTEM_INSTRUCTION } from './constants';
 import { createBlob, decode, decodeAudioData } from './services/audioUtils';
 import AudioOrb from './components/AudioOrb';
 
 const API_KEY = process.env.API_KEY;
+
+const endCallTool: FunctionDeclaration = {
+  name: "endCall",
+  description: "End the call/conversation immediately.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {},
+  }
+};
 
 export default function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -63,6 +72,14 @@ export default function App() {
     nextStartTimeRef.current = 0;
   };
 
+  const disconnectFromGemini = () => {
+    if (sessionPromiseRef.current) {
+      sessionPromiseRef.current = null;
+    }
+    stopAudio();
+    setConnectionState('disconnected');
+  };
+
   const connectToGemini = async () => {
     if (!API_KEY) {
       setErrorMsg("API Key not found in environment.");
@@ -91,7 +108,8 @@ export default function App() {
           systemInstruction: SYSTEM_INSTRUCTION,
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } }
-          }
+          },
+          tools: [{ functionDeclarations: [endCallTool] }]
         },
         callbacks: {
           onopen: () => {
@@ -131,6 +149,28 @@ export default function App() {
                });
                sourcesRef.current.clear();
                nextStartTimeRef.current = 0;
+             }
+
+             // Handle Tool Calls (e.g., Hang up)
+             if (message.toolCall) {
+                const calls = message.toolCall.functionCalls;
+                if (calls && calls.length > 0) {
+                   if (calls.some(c => c.name === 'endCall')) {
+                      // Allow a few seconds for the "Goodbye" message to finish playing before cutting the connection
+                      setTimeout(() => {
+                        disconnectFromGemini();
+                      }, 4000);
+                   }
+                   
+                   // Send response back to acknowledge (even if ending)
+                   sessionPromise.then(session => session.sendToolResponse({
+                     functionResponses: calls.map(c => ({
+                       id: c.id,
+                       name: c.name,
+                       response: { result: "ok" }
+                     }))
+                   }));
+                }
              }
 
             // Handle Audio Output
@@ -189,14 +229,6 @@ export default function App() {
       setErrorMsg(err.message || "Failed to access microphone or connect.");
       stopAudio();
     }
-  };
-
-  const disconnectFromGemini = () => {
-    if (sessionPromiseRef.current) {
-      sessionPromiseRef.current = null;
-    }
-    stopAudio();
-    setConnectionState('disconnected');
   };
 
   const toggleMute = () => {
