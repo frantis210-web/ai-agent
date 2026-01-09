@@ -1,0 +1,7 @@
+{
+  "name": "COMBO.WICK SHOP AI Agent",
+  "description": "A premium AI voice agent for a digital game key marketplace.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
